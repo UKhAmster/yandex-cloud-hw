@@ -3,134 +3,166 @@
 **Дисциплина:** Семинар наставника  
 **Тема:** Обработка и анализ данных в Yandex Cloud: от загрузки до визуализации  
 **Преподаватель:** Владислав Шевченко  
-**Дедлайн:** 21.04.2026
+
+---
+
+## Стек технологий
+
+![Yandex Cloud](https://img.shields.io/badge/Yandex_Cloud-Data_Proc-blue)
+![ClickHouse](https://img.shields.io/badge/ClickHouse-25.8_LTS-yellow)
+![Apache Spark](https://img.shields.io/badge/Apache_Spark-3.3.2-orange)
+![DataLens](https://img.shields.io/badge/Yandex-DataLens-purple)
+![Airflow](https://img.shields.io/badge/Apache_Airflow-2.8-green)
 
 ---
 
 ## Структура репозитория
 
 ```
-.
+SN_HW1/
 ├── task1_dataproc/
 │   ├── 01_create_tables.sql      # DDL для Hive/Spark: transactions_v2, logs_v2
-│   ├── 02_aggregations.sql       # Агрегирующие SQL-запросы (HiveQL / Spark SQL)
+│   ├── 02_aggregations.sql       # Агрегирующие SQL-запросы (Spark SQL)
 │   └── task1_notebook.json       # Zeppelin-ноутбук (PySpark DataFrame API)
-│
 ├── task2_clickhouse/
 │   └── clickhouse_queries.sql    # DDL + 5 агрегаций для ClickHouse
-│
 ├── task4_airflow/
 │   └── hive_to_clickhouse_dag.py # Airflow DAG: репликация Hive → ClickHouse
-│
+├── screenshots/                  # Скриншоты результатов
 └── README.md
 ```
 
 ---
 
-## Задание 1 — Yandex Data Proc (Hive / Spark SQL)
+## Задание 1 — Yandex Data Proc (Spark SQL)
+
+### Описание
+Поднят кластер Yandex Data Proc (Image 2.1, Spark 3.3.2 + Zeppelin). Данные загружены из Yandex Object Storage в два датафрейма: `transactions_v2` (20 строк) и `logs_v2` (16 строк). Выполнено 5 агрегаций через PySpark DataFrame API, результаты сохранены в HDFS по пути `/tmp/sandbox_zeppelin/task1_aggregations/`.
 
 ### Таблицы
-| Таблица | Источник | Формат |
+| Таблица | Строк | Поля |
 |---|---|---|
-| `transactions_v2` | Object Storage (CSV) | `transaction_id, user_id, amount, currency, transaction_date, is_fraud` |
-| `logs_v2` | Object Storage (TXT, TSV) | `log_id, transaction_id, event_time, category, message` |
+| `transactions_v2` | 20 | transaction_id, user_id, amount, currency, transaction_date, is_fraud |
+| `logs_v2` | 16 | log_id, transaction_id, event_time, category, message |
 
-### Агрегации (`02_aggregations.sql` / `task1_notebook.json`)
-1. **По валютам** — суммарный объём транзакций USD/EUR/RUB, кол-во и средний чек.
-2. **Фрод vs норма** — `is_fraud`: количество, суммарная сумма, средний чек.
-3. **Ежедневная динамика** — `tx_count`, `daily_total`, `daily_avg` по датам.
-4. **Временные интервалы** — разбивка по месяцу и дню недели.
-5. **JOIN logs_v2** — логов на транзакцию, топ категорий, фрод по категориям.
-
-### Запуск ноутбука в Zeppelin
-1. Импортировать `task1_notebook.json` через **Import Note**.
-2. Установить интерпретатор `%spark.pyspark`.
-3. Заменить `<your-bucket>` на имя своего бакета в Object Storage.
-4. Запустить ячейки последовательно.
+### Выполненные агрегации
+1. Суммарный объём транзакций по валютам (USD/EUR/RUB)
+2. Статистика по мошенническим vs нормальным транзакциям
+3. Ежедневная динамика транзакций
+4. Анализ по месяцу и дню недели
+5. JOIN с logs_v2: количество логов на транзакцию, топ категорий
 
 ---
 
 ## Задание 2 — ClickHouse
 
-### Таблицы
-| Таблица | Ключ сортировки |
-|---|---|
-| `orders` | `(order_date, order_id)` |
-| `order_items` | `(order_id, item_id)` |
+### Описание
+Поднят кластер Managed Service for ClickHouse (v25.8 LTS). Созданы таблицы `orders` (16 строк) и `order_items` (16 строк) с движком MergeTree. Данные загружены через INSERT. Выполнено 5 аналитических запросов.
 
-### Агрегации (`clickhouse_queries.sql`)
-1. Группировка по `payment_status`: кол-во заказов, сумма, средний чек.
-2. JOIN `orders × order_items`: общая статистика по позициям.
-3. Ежедневная динамика заказов.
-4. Топ-10 пользователей по сумме заказов.
-5. Топ-10 продуктов по выручке (только `paid`-заказы).
+### Агрегация 1 — Статистика по статусам оплаты
 
-### Загрузка данных из Object Storage
-```sql
-INSERT INTO orders
-SELECT * FROM s3(
-    'https://storage.yandexcloud.net/<bucket>/data/orders.csv',
-    '<access_key>', '<secret_key>',
-    'CSV', 'order_id String, user_id String, order_date Date,
-             payment_status String, total_amount Float64'
-);
-```
+![Агрегация 1](screenshots/screenshot1.png)
+
+**Результат:** paid — 10 заказов на сумму 11198.99, pending — 4 заказа на 3049.5, cancelled — 2 заказа на 120.
 
 ---
 
-## Задание 3 — DataLens (визуализация)
+### Агрегация 2 — JOIN orders × order_items
 
-Дашборд строится поверх ClickHouse-коннектора. Рекомендуемые чарты:
+![Агрегация 2](screenshots/screenshot2.png)
 
-| Чарт | Источник | Тип |
-|---|---|---|
-| Динамика транзакций по датам | `agg_daily` (Hive) или `orders` (CH) | Line chart |
-| Распределение по валютам | `agg_currency` | Pie / Bar |
-| Статистика фрода | `agg_fraud` | Bar |
-| Топ пользователей | `orders` GROUP BY user_id | Horizontal bar |
+**Результат:** paid-заказы: 7 позиций, 23 единицы товара, выручка 5699. pending: 4 позиции, 7 единиц, 2549.5.
 
-**Фильтры:** по `order_date` (date range), `payment_status`, `user_id`.
+---
+
+### Агрегация 3 — Ежедневная статистика заказов
+
+![Агрегация 3](screenshots/screenshot3.png)
+
+**Результат:** 3 дня данных — 2023-03-01 (5 заказов, 4149.5), 2023-03-02 (6 заказов, 4769), 2023-03-03 (5 заказов, 5449.99).
+
+---
+
+### Агрегация 4 — Топ-10 пользователей по сумме заказов
+
+![Агрегация 4](screenshots/screenshot4.png)
+
+**Результат:** Лидер — user_id 13 (2 заказа, сумма 4100), второй — user_id 10 (5 заказов, сумма 3450).
+
+---
+
+### Агрегация 5 — Топ продуктов по выручке (paid)
+
+![Агрегация 5](screenshots/screenshot5.png)
+
+**Результат:** Топ-1 GamingConsole (3 шт., выручка 1950), топ-2 Monitor и Smartphone (по 1200).
+
+---
+
+## Задание 3 — Визуализация в DataLens
+
+### Описание
+Создано подключение к ClickHouse кластеру через DataLens. Построен датасет `ds-orders` на основе таблицы `orders`. Созданы 3 чарта и собран дашборд с фильтром по `payment_status`.
+
+### Чарт 1 — Выручка по датам (столбчатая диаграмма)
+
+![Chart daily revenue](screenshots/screenshot6.png)
+
+---
+
+### Чарт 2 — Распределение по статусам (круговая диаграмма)
+
+![Chart payment status](screenshots/screenshot7.png)
+
+---
+
+### Чарт 3 — Топ пользователей (горизонтальная диаграмма)
+
+![Chart top users](screenshots/screenshot8.png)
+
+---
+
+### Дашборд hw-dashboard
+
+![Dashboard](screenshots/screenshot9.png)
+
+Дашборд включает все 3 чарта и селектор фильтрации по `payment_status`.
 
 ---
 
 ## Задание 4* — Airflow DAG (репликация Hive → ClickHouse)
 
-**Файл:** `task4_airflow/hive_to_clickhouse_dag.py`
+### Описание
+Реализован DAG `hive_to_clickhouse_replication` для ежедневной (03:00 UTC) репликации агрегированных данных из Spark/Hive в ClickHouse.
 
 ### Шаги DAG
 ```
 write_spark_script → spark_export_hive_agg → clickhouse_load
 ```
 
-1. `write_spark_script` — сохраняет Spark-скрипт на Driver-узел.
-2. `spark_export_hive_agg` — PySpark читает `transactions_v2`, агрегирует по датам, сохраняет CSV в HDFS `/tmp/airflow_export/tx_daily_agg`.
-3. `clickhouse_load` — читает CSV из HDFS, создаёт таблицу `tx_daily_agg` в ClickHouse (если не существует), вставляет данные.
+1. `write_spark_script` — записывает PySpark-скрипт на Driver-узел
+2. `spark_export_hive_agg` — читает `transactions_v2`, агрегирует по датам, сохраняет CSV в HDFS
+3. `clickhouse_load` — загружает CSV из HDFS в таблицу `tx_daily_agg` в ClickHouse
 
-### Настройка
-```bash
-# Зависимости
-pip install apache-airflow-providers-apache-spark clickhouse-driver pandas
-
-# Переменная с паролем ClickHouse
-airflow variables set ch_password '<your-password>'
-
-# Airflow Connection для Spark
-airflow connections add spark_default \
-  --conn-type spark \
-  --conn-host yarn \
-  --conn-extra '{"queue": "default"}'
+### Схема таблицы-приёмника
+```sql
+CREATE TABLE tx_daily_agg (
+    transaction_date Date,
+    tx_count         UInt64,
+    daily_total      Float64,
+    daily_avg        Float64,
+    fraud_count      UInt64
+) ENGINE = ReplacingMergeTree()
+ORDER BY transaction_date;
 ```
-
-**Расписание:** `0 3 * * *` (ежедневно в 03:00 UTC).
 
 ---
 
-## Зависимости
+## Инфраструктура Yandex Cloud
 
-```
-pyspark>=3.3
-clickhouse-driver>=0.2
-pandas>=2.0
-apache-airflow>=2.8
-apache-airflow-providers-apache-spark
-```
+| Сервис | Имя | Конфигурация |
+|---|---|---|
+| Data Proc | dataproc234 | Image 2.1, Spark+Zeppelin, s3-c2-m8 |
+| ClickHouse | hw-clickhouse | v25.8 LTS, s4a-c2-m8 |
+| Object Storage | hw-hse1 | Стандартный, приватный |
+| DataLens | hw-workbook | Подключение к ClickHouse |
