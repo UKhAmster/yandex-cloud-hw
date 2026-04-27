@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+
+# Spark / IDE
+.spark-warehouse/
+spark-warehouse/
+metastore_db/
+derby.log
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Локальные артефакты parquet (на случай локальных запусков)
+/tmp/
+output/
